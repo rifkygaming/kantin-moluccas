@@ -1,6 +1,6 @@
 {
-  "name": "Kantin Baileo Khas Ambon",
-  "description": "Aplikasi pemutar menu dan pemesanan mandiri kantin tradisional Ambon.",
+  "name": "Kedai Khas Maluku",
+  "description": "Aplikasi pemutar menu dan pemesanan mandiri kedai tradisional Maluku.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

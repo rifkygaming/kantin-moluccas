@@ -71,6 +71,15 @@ export const DAFTAR_MENU: MenuItem[] = [
     tersedia: true,
   },
   {
+    id: 'c4',
+    nama: 'Manisan Pala',
+    kategori: 'cemilan',
+    harga: 7000,
+    deskripsi: 'Camilan buah khas Maluku beraroma harum terbuat dari daging buah pala pilihan yang diiris tipis dan diawetkan dengan taburan gula pasir manis-asam segar.',
+    emoji: '🍑',
+    tersedia: true,
+  },
+  {
     id: 'd2',
     nama: 'Kopi Sibu-Sibu',
     kategori: 'minuman',

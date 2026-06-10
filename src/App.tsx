@@ -255,7 +255,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-xl font-bold tracking-tight text-slate-900">
-                Kantin Baileo Khas Ambon
+                Kedai Khas Maluku
               </h1>
               <p className="text-xs text-amber-600 font-medium tracking-wide">
                 Menu Tradisional Maluku & Pemesanan Mandiri
@@ -279,10 +279,10 @@ export default function App() {
         <div className="bg-amber-50 border border-amber-200/60 rounded-2xl p-5 mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
           <div className="space-y-1">
             <h2 className="text-lg font-bold text-amber-900 flex items-center gap-2">
-              👋 Selamat Datang di Kantin Baileo!
+              👋 Selamat Datang di Kedai Khas Maluku!
             </h2>
             <p className="text-sm text-amber-700">
-              Nikmati keaslian cita rasa kuliner Ambon Manise dari Papeda siram kuah kuning segar, Kohu-kohu, hingga wangi gurih Kopi Sibu-sibu Kenari.
+              Nikmati keaslian cita rasa kuliner khas Maluku dari Papeda siram kuah kuning segar, Kohu-kohu, hingga wangi gurih Kopi Sibu-sibu Kenari.
             </p>
           </div>
           <div className="text-xs bg-white text-amber-800 px-3 py-1.5 rounded-lg border border-amber-200 font-semibold shrink-0">
@@ -817,7 +817,7 @@ export default function App() {
                   <CheckCircle2 size={24} className="text-emerald-100" />
                 </div>
                 <h3 className="font-extrabold text-base">Pesanan Terkirim ke Dapur!</h3>
-                <p className="text-xs text-emerald-100">Silakan tunjukkan struk digital ini ke kasir kantin.</p>
+                <p className="text-xs text-emerald-100">Silakan tunjukkan struk digital ini ke kasir kedai.</p>
               </div>
 
               {/* TAMPILAN RESI TERINSPIRASI OLEH STRUK FISIK KERTAS (RECEIPT PAPER) */}
@@ -831,7 +831,7 @@ export default function App() {
 
                   {/* Info Kedai */}
                   <div className="text-center space-y-1">
-                    <p className="font-bold text-sm tracking-tight uppercase text-slate-800">🌴 KANTIN BAILEO AMBON 🌴</p>
+                    <p className="font-bold text-sm tracking-tight uppercase text-slate-800">🌴 KEDAI KHAS MALUKU 🌴</p>
                     <p className="text-[10px] text-slate-500">Area Kampus Universitas Pattimura, Ambon</p>
                     <p className="border-b border-dashed border-slate-200 py-1"></p>
                   </div>
