@@ -21,7 +21,14 @@ import {
   Wallet,
   Receipt,
   Printer,
-  ChevronRight
+  ChevronRight,
+  MapPin,
+  Truck,
+  ExternalLink,
+  Info,
+  Clock,
+  Sparkles,
+  Copy
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -43,28 +50,37 @@ export default function App() {
   // State untuk menyimpan daftar item di keranjang belanja
   const [cart, setCart] = useState<CartItem[]>([]);
 
-  // State untuk input form rincian pesanan
+  // State untuk input form rincian pesanan (ditambah alamat, kurir, catatanDriver)
   const [formOrder, setFormOrder] = useState<OrderDetails>({
     namaPemesan: '',
     nomorMeja: '',
     tipePesanan: 'dine-in',
     metodeBayar: 'tunai',
+    alamatPengiriman: '',
+    metodeKirim: 'kurir-kedai',
+    catatanDriver: '',
   });
+
+  // State dialog GoFood & Online Order
+  const [activeGoFoodItem, setActiveGoFoodItem] = useState<MenuItem | null>(null);
+  const [showGoFoodHub, setShowGoFoodHub] = useState<boolean>(false);
 
   // State untuk menampilkan struk belanja (Modal Checkout Sukses)
   const [showReceipt, setShowReceipt] = useState<boolean>(false);
+  const [isCopied, setIsCopied] = useState<boolean>(false);
   const [completedOrder, setCompletedOrder] = useState<{
     idOrder: string;
     items: CartItem[];
     details: OrderDetails;
     subtotal: number;
     pajak: number;
+    ongkir: number;
     total: number;
     waktu: string;
   } | null>(null);
 
-  // State untuk menampung error form validation
-  const [formErrors, setFormErrors] = useState<{ nama?: string; meja?: string }>({});
+  // State untuk menampung error form validation (ditambah alamat)
+  const [formErrors, setFormErrors] = useState<{ nama?: string; meja?: string; alamat?: string }>({});
 
   // State catatan sementara sebelum dimasukkan ke keranjang
   const [tempNotes, setTempNotes] = useState<{ [itemId: string]: string }>({});
@@ -78,7 +94,8 @@ export default function App() {
       const matchCategory = selectedCategory === 'semua' || item.kategori === selectedCategory;
       // Filter dengan kata kunci pencarian menggunakan lower case
       const matchSearch = item.nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          item.deskripsi.toLowerCase().includes(searchQuery.toLowerCase());
+                          item.deskripsi.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          item.fitur.some(f => f.toLowerCase().includes(searchQuery.toLowerCase()));
       return matchCategory && matchSearch;
     });
   }, [searchQuery, selectedCategory]);
@@ -165,9 +182,17 @@ export default function App() {
     return Math.round(cartSubtotal * 0.1);
   }, [cartSubtotal]);
 
+  // Biaya Ongkos Kirim untuk Pesanan Online
+  const deliveryFee = useMemo(() => {
+    if (formOrder.tipePesanan !== 'online-delivery') return 0;
+    if (formOrder.metodeKirim === 'gojek') return 15000;
+    if (formOrder.metodeKirim === 'grab') return 16000;
+    return 10000; // kurir internal kedai khas Maluku
+  }, [formOrder.tipePesanan, formOrder.metodeKirim]);
+
   const totalPayment = useMemo(() => {
-    return cartSubtotal + taxAmount;
-  }, [cartSubtotal, taxAmount]);
+    return cartSubtotal + taxAmount + deliveryFee;
+  }, [cartSubtotal, taxAmount, deliveryFee]);
 
   // Total kuantitas barang di keranjang
   const totalCartItemsCount = useMemo(() => {
@@ -181,7 +206,7 @@ export default function App() {
     e.preventDefault();
 
     // Reset error terlebih dahulu
-    const errors: { nama?: string; meja?: string } = {};
+    const errors: { nama?: string; meja?: string; alamat?: string } = {};
 
     // Validasi dasar: Nama pembeli tidak boleh kosong
     if (!formOrder.namaPemesan.trim()) {
@@ -191,6 +216,11 @@ export default function App() {
     // Validasi nomor meja jika memesan Dine-In (makan di tempat)
     if (formOrder.tipePesanan === 'dine-in' && !formOrder.nomorMeja.trim()) {
       errors.meja = 'Nomor meja harus diisi jika makan di tempat!';
+    }
+
+    // Validasi alamat pengiriman jika memesan Online Delivery
+    if (formOrder.tipePesanan === 'online-delivery' && !formOrder.alamatPengiriman?.trim()) {
+      errors.alamat = 'Alamat pengiriman lengkap wajib diisi!';
     }
 
     // Jika ada error, hentikan pengisian
@@ -220,6 +250,7 @@ export default function App() {
       details: { ...formOrder },
       subtotal: cartSubtotal,
       pajak: taxAmount,
+      ongkir: deliveryFee,
       total: totalPayment,
       waktu: orderTime
     });
@@ -228,7 +259,7 @@ export default function App() {
     setShowReceipt(true);
   };
 
-  // Fungsi mereset seluruh aplikasi (mencuci keranjang & form) setelah transaksi sukses selesai
+  // Fungsi mereset seluruh aplikasi setelah transaksi sukses selesai
   const handleResetApp = () => {
     setCart([]);
     setFormOrder({
@@ -236,10 +267,14 @@ export default function App() {
       nomorMeja: '',
       tipePesanan: 'dine-in',
       metodeBayar: 'tunai',
+      alamatPengiriman: '',
+      metodeKirim: 'kurir-kedai',
+      catatanDriver: '',
     });
     setCompletedOrder(null);
     setShowReceipt(false);
     setTempNotes({});
+    setIsCopied(false);
   };
 
   return (
@@ -275,18 +310,33 @@ export default function App() {
       {/* 2. Container Halaman Utama */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-6">
         
-        {/* Banner Selamat Datang */}
-        <div className="bg-amber-50 border border-amber-200/60 rounded-2xl p-5 mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
-          <div className="space-y-1">
-            <h2 className="text-lg font-bold text-amber-900 flex items-center gap-2">
+        {/* Banner Selamat Datang & GoFood Promo */}
+        <div className="bg-gradient-to-r from-amber-500 to-orange-600 rounded-2xl p-6 mb-6 text-white shadow-md relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none transform translate-x-4 -translate-y-4">
+            <Utensils size={180} />
+          </div>
+          <div className="space-y-2 relative z-1">
+            <span className="bg-amber-400 text-slate-900 text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full shadow-xs tracking-wider inline-flex items-center gap-1">
+              <Sparkles size={11} className="fill-slate-900" /> BISA PESAN ONLINE & MITRA UTAMA GOFOOD
+            </span>
+            <h2 className="text-xl sm:text-2xl font-extrabold flex items-center gap-2 tracking-tight">
               👋 Selamat Datang di Kedai Khas Maluku!
             </h2>
-            <p className="text-sm text-amber-700">
-              Nikmati keaslian cita rasa kuliner khas Maluku dari Papeda siram kuah kuning segar, Kohu-kohu, hingga wangi gurih Kopi Sibu-sibu Kenari.
+            <p className="text-sm text-amber-50 max-w-2xl leading-relaxed font-medium">
+              Nikmati cita rasa kuliner tradisional Ambon, mulai dari Papeda hangat bersiram kuah kuning segar, Kohu-kohu cakalang, hingga Kopi Sibu-sibu Kenari yang wangi. Kami melayani makan di tempat, bawa pulang, pesan pengantaran online langsung, dan mitra terverifikasi GoFood!
             </p>
           </div>
-          <div className="text-xs bg-white text-amber-800 px-3 py-1.5 rounded-lg border border-amber-200 font-semibold shrink-0">
-            Buka Setiap Hari: 08:30 - 17:00 WIT
+          <div className="flex flex-col sm:flex-row md:flex-col lg:flex-row gap-2 shrink-0 w-full md:w-auto relative z-1">
+            <button
+              onClick={() => setShowGoFoodHub(true)}
+              className="bg-white hover:bg-neutral-50 text-red-600 font-extrabold text-xs py-3 px-4 rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all border border-transparent hover:border-red-100 cursor-pointer active:scale-95"
+            >
+              <ExternalLink size={14} /> Pesan Cepat GoFood
+            </button>
+            <div className="text-xs bg-black/25 text-white/90 px-4 py-3 rounded-xl border border-white/15 backdrop-blur-xs flex flex-col justify-center items-center font-medium">
+              <div>Buka Setiap Hari</div>
+              <div className="font-bold text-amber-300">08:30 - 17:00 WIT</div>
+            </div>
           </div>
         </div>
 
@@ -307,7 +357,7 @@ export default function App() {
                 <input
                   id="kolom-pencarian"
                   type="text"
-                  placeholder="Mau makan apa hari ini? Ketik di sini..."
+                  placeholder="Mau makan apa hari ini? Cari nama menu, deskripsi, atau rasa..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all"
@@ -403,32 +453,72 @@ export default function App() {
                             : 'border-slate-200 hover:shadow-md hover:border-slate-300'
                         }`}
                       >
-                        {/* Konten Utama Menu */}
-                        <div className="p-4 space-y-2">
-                          <div className="flex justify-between items-start">
-                            {/* Visual Emoji Menu Besar */}
-                            <div className="w-12 h-12 bg-amber-50 rounded-lg flex items-center justify-center text-2xl shadow-inner shrink-0 border border-amber-100">
-                              {item.emoji}
-                            </div>
-                            
-                            {/* Badge Kategori */}
-                            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-600">
-                              {item.kategori}
+                        {/* 1. Header Gambar Makanan / Minuman */}
+                        {item.gambar && (
+                          <div className="relative h-44 w-full overflow-hidden bg-slate-100 group shrink-0 border-b border-slate-100">
+                            <img
+                              src={item.gambar}
+                              alt={item.nama}
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                            />
+                            {/* Floating Category Badge */}
+                            <span className="absolute top-2.5 left-2.5 text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded bg-white/95 backdrop-blur-xs text-amber-900 shadow-xs border border-amber-100/50 flex items-center gap-1">
+                              <span>{item.emoji}</span>
+                              <span>{item.kategori}</span>
                             </span>
+                            
+                            {/* Floating GoFood Badge */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveGoFoodItem(item);
+                              }}
+                              className="absolute top-2.5 right-2.5 bg-red-600 hover:bg-red-700 text-white rounded-full text-[10px] font-extrabold px-2 py-1 shadow-md active:scale-95 transition-transform flex items-center gap-1 cursor-pointer border border-white/20"
+                            >
+                              <ExternalLink size={10} /> GoFood
+                            </button>
+                            
+                            {/* Rendiment Porsi & Waktu Saji */}
+                            <div className="absolute bottom-2 left-2 right-2 bg-gradient-to-t from-black/75 to-transparent p-2 pt-4 rounded-b-lg flex justify-between text-[11px] text-white">
+                              <span className="font-semibold flex items-center gap-1">⏱️ {item.waktuSaji}</span>
+                              <span className="font-semibold flex items-center gap-1">🍽️ {item.estimasiPorsi}</span>
+                            </div>
                           </div>
+                        )}
 
-                          <div className="space-y-1 pt-1">
-                            <h3 className="font-bold text-slate-900 text-sm sm:text-base leading-tight">
-                              {item.nama}
-                            </h3>
+                        {/* Konten Utama Menu */}
+                        <div className="p-4 space-y-2.5 flex-1 flex flex-col justify-between">
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between items-start gap-2">
+                              <h3 className="font-extrabold text-slate-900 text-sm sm:text-base leading-tight">
+                                {item.nama}
+                              </h3>
+                              {/* Spiciness indicator */}
+                              {item.tingkatPedas !== undefined && item.tingkatPedas > 0 && (
+                                <span className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-200/50 px-1.5 py-0.5 rounded flex items-center whitespace-nowrap shrink-0">
+                                  🌶️ {Array(item.tingkatPedas).fill('🌶️').join('')}
+                                </span>
+                              )}
+                            </div>
                             <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
                               {item.deskripsi}
                             </p>
                           </div>
+
+                          {/* Fitur/Gambaran Menu */}
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {item.fitur.map((tag, idx) => (
+                              <span key={idx} className="text-[9px] font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200/80 px-2 py-0.5 rounded transition-colors border border-slate-200/30">
+                                🏷️ {tag}
+                              </span>
+                            ))}
+                          </div>
                         </div>
 
                         {/* Harga & Tombol Tambah */}
-                        <div className="p-4 pt-1 border-t border-slate-100 bg-slate-50/70 flex items-center justify-between mt-auto">
+                        <div className="p-4 pt-1.5 border-t border-slate-100 bg-slate-50/70 flex items-center justify-between shrink-0">
                           <div>
                             <span className="text-xs text-slate-400 font-medium">Harga</span>
                             <p className="font-extrabold text-amber-600 text-base">
@@ -440,7 +530,7 @@ export default function App() {
                           {item.tersedia ? (
                             <div className="flex items-center gap-1.5">
                               {quantityInCart > 0 && (
-                                <span className="text-xs font-bold text-amber-700 bg-amber-100 px-2.5 py-1.5 rounded-lg border border-amber-200">
+                                <span className="text-xs font-bold text-amber-700 bg-amber-100 px-2.5 py-1.5 rounded-lg border border-amber-200 shrink-0">
                                   {quantityInCart} pcs
                                 </span>
                               )}
@@ -479,16 +569,26 @@ export default function App() {
               )}
             </div>
 
-            {/* Catatan / FAQ Sederhana untuk memperkuat keaslian buatan tangan mahasiswa */}
-            <div className="p-4 bg-slate-200/50 border border-slate-200 rounded-xl">
-              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                📝 Panduan Singkat Sistem
-              </h4>
-              <ul className="text-xs text-slate-600 space-y-1 list-disc list-inside">
-                <li>Pilih makanan & minuman favorit, masukkan ke keranjang di kanan.</li>
-                <li>Pilih meja dan cara penyajian (makan ditempat/bawa pulang).</li>
-                <li>Simulasi pembayaran menyediakan struk transaksi otomatis.</li>
-              </ul>
+            {/* Panduan Pemesanan Online & GoFood */}
+            <div className="p-4 bg-slate-200/50 border border-slate-200 rounded-xl grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  📝 Alur Pemesanan Mandiri
+                </h4>
+                <ul className="text-xs text-slate-600 space-y-1 list-disc list-inside">
+                  <li>Pilih menu lokal khas Maluku berselera.</li>
+                  <li>Sesuaikan dengan porsi, level pedas, dan rincian masakan.</li>
+                  <li>Masukkan data rincian di keranjang untuk diproses.</li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  🛵 Layanan Antar & GoFood
+                </h4>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Kami bekerja sama dengan ojek online Gojek (GoSend/GoFood) serta Grab untuk pengantaran kilat ke rumah atau kos Anda di area kota Ambon.
+                </p>
+              </div>
             </div>
 
           </section>
@@ -632,36 +732,37 @@ export default function App() {
                         
                         {/* Tipe Penyajian */}
                         <div className="space-y-1">
-                          <label className="text-xs font-bold text-slate-600">Sajian</label>
+                          <label className="text-xs font-bold text-slate-600">Tipe Layanan</label>
                           <select
                             value={formOrder.tipePesanan}
                             onChange={(e) => {
-                              const val = e.target.value as 'dine-in' | 'take-away';
+                              const val = e.target.value as 'dine-in' | 'take-away' | 'online-delivery';
                               setFormOrder(prev => ({ 
                                 ...prev, 
                                 tipePesanan: val,
-                                // Reset meja jika dibungkus
-                                nomorMeja: val === 'take-away' ? 'Bawa Pulang (Take-Away)' : ''
+                                // Atur keterangan meja default
+                                nomorMeja: val === 'dine-in' ? '' : val === 'take-away' ? 'Dibungkus (Take-Away)' : 'Kirim Kurir'
                               }));
-                              setFormErrors(prev => ({ ...prev, meja: undefined }));
+                              setFormErrors(prev => ({ ...prev, meja: undefined, alamat: undefined }));
                             }}
-                            className="w-full text-xs px-2.5 py-2 border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-amber-500"
+                            className="w-full text-xs px-2.5 py-2 border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-amber-500 font-semibold"
                           >
                             <option value="dine-in">🍛 Makan Di Sini</option>
-                            <option value="take-away">🛍️ Dibungkus</option>
+                            <option value="take-away">🛍️ Dibungkus (Take-Away)</option>
+                            <option value="online-delivery">🛵 Antar Online (Delivery)</option>
                           </select>
                         </div>
 
                         {/* Nomor Meja */}
                         <div className="space-y-1">
                           <label className="text-xs font-bold text-slate-600 flex items-center gap-1">
-                            <Hash size={12} className="text-slate-400" /> Meja / Lokasi
+                            <Hash size={12} className="text-slate-400" /> No. Meja / Lokasi
                           </label>
                           <input
                             type="text"
-                            placeholder="Contoh: Meja 05"
+                            placeholder={formOrder.tipePesanan === 'online-delivery' ? 'Alamat Pengiriman' : 'Contoh: Meja 04'}
                             value={formOrder.nomorMeja}
-                            disabled={formOrder.tipePesanan === 'take-away'}
+                            disabled={formOrder.tipePesanan !== 'dine-in'}
                             onChange={(e) => {
                               setFormOrder(prev => ({ ...prev, nomorMeja: e.target.value }));
                               if (e.target.value.trim()) {
@@ -681,20 +782,85 @@ export default function App() {
 
                       </div>
 
+                      {/* Form Pengiriman Khusus Alamat Delivery */}
+                      {formOrder.tipePesanan === 'online-delivery' && (
+                        <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-lg space-y-3">
+                          <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-200/50 pb-1">
+                            <MapPin size={13} className="text-red-500 animate-bounce" />
+                            Detail Alamat Pengiriman
+                          </label>
+                          
+                          {/* Alamat Lengkap */}
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-600">Alamat Lengkap <span className="text-red-500">*</span></label>
+                            <textarea
+                              rows={2}
+                              placeholder="Ketik Alamat Lengkap Kos, Rumah, atau Kantor Anda di Ambon..."
+                              value={formOrder.alamatPengiriman}
+                              onChange={(e) => {
+                                setFormOrder(prev => ({ ...prev, alamatPengiriman: e.target.value }));
+                                if (e.target.value.trim()) {
+                                  setFormErrors(prev => ({ ...prev, alamat: undefined }));
+                                }
+                              }}
+                              className={`w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+                                formErrors.alamat 
+                                  ? 'border-red-300 bg-red-50 focus:ring-red-200' 
+                                  : 'border-slate-200 focus:ring-amber-200 focus:border-amber-500'
+                              }`}
+                            />
+                            {formErrors.alamat && (
+                              <p className="text-[10px] text-red-500 font-bold">{formErrors.alamat}</p>
+                            )}
+                          </div>
+
+                          {/* Pilihan Kurir */}
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                              <Truck size={12} className="text-slate-400" /> Metode Pengiriman
+                            </label>
+                            <select
+                              value={formOrder.metodeKirim}
+                              onChange={(e) => {
+                                setFormOrder(prev => ({ ...prev, metodeKirim: e.target.value as any }));
+                              }}
+                              className="w-full text-xs px-2.5 py-2 border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-amber-500 font-semibold text-slate-700"
+                            >
+                              <option value="kurir-kedai">🛵 Kurir Kedai (Ambon Area) - Rp 10.000</option>
+                              <option value="gojek">🚗 GoSend Gojek Instant - Rp 15.000</option>
+                              <option value="grab">🚕 Grab Express Instant - Rp 16.000</option>
+                            </select>
+                          </div>
+
+                          {/* Catatan Driver */}
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-600">Catatan untuk Kurir (Opsional)</label>
+                            <input
+                              type="text"
+                              placeholder="Contoh: Depan Kampus, pagar warna biru..."
+                              value={formOrder.catatanDriver}
+                              onChange={(e) => setFormOrder(prev => ({ ...prev, catatanDriver: e.target.value }))}
+                              className="w-full text-xs px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-amber-500"
+                            />
+                          </div>
+                        </div>
+                      )}
+
                       {/* Metode Pembayaran */}
                       <div className="space-y-1">
                         <label className="text-xs font-bold text-slate-600 flex items-center gap-1">
                           <Wallet size={12} className="text-slate-400" /> Metode Pembayaran
                         </label>
-                        <div className="grid grid-cols-2 gap-3">
-                          <label className={`border rounded-lg p-2.5 flex items-center justify-between cursor-pointer transition-all ${
+                        <div className="grid grid-cols-2 gap-2">
+                          {/* Tunai Kasir */}
+                          <label className={`border rounded-lg p-2 flex items-center justify-between cursor-pointer transition-all ${
                             formOrder.metodeBayar === 'tunai' 
                               ? 'border-amber-500 bg-amber-50/50 ring-1 ring-amber-500' 
                               : 'border-slate-200 hover:bg-slate-50'
                           }`}>
                             <div className="flex items-center gap-1.5">
-                              <span className="text-sm">💵</span>
-                              <span className="text-xs font-bold text-slate-700">Tunai Kasir</span>
+                              <span className="text-xs">💵</span>
+                              <span className="text-[11px] font-bold text-slate-700">Tunai Kasir</span>
                             </div>
                             <input
                               type="radio"
@@ -702,18 +868,19 @@ export default function App() {
                               value="tunai"
                               checked={formOrder.metodeBayar === 'tunai'}
                               onChange={() => setFormOrder(p => ({ ...p, metodeBayar: 'tunai' }))}
-                              className="accent-amber-600 scale-95"
+                              className="accent-amber-600 scale-90"
                             />
                           </label>
 
-                          <label className={`border rounded-lg p-2.5 flex items-center justify-between cursor-pointer transition-all ${
+                          {/* QRIS Mandiri */}
+                          <label className={`border rounded-lg p-2 flex items-center justify-between cursor-pointer transition-all ${
                             formOrder.metodeBayar === 'qris' 
                               ? 'border-amber-500 bg-amber-50/50 ring-1 ring-amber-500' 
                               : 'border-slate-200 hover:bg-slate-50'
                           }`}>
                             <div className="flex items-center gap-1.5">
-                              <span className="text-sm">📱</span>
-                              <span className="text-xs font-bold text-slate-700">QRIS Mandiri</span>
+                              <span className="text-xs">📱</span>
+                              <span className="text-[11px] font-bold text-slate-700">QRIS Mandiri</span>
                             </div>
                             <input
                               type="radio"
@@ -721,7 +888,47 @@ export default function App() {
                               value="qris"
                               checked={formOrder.metodeBayar === 'qris'}
                               onChange={() => setFormOrder(p => ({ ...p, metodeBayar: 'qris' }))}
-                              className="accent-amber-600 scale-95"
+                              className="accent-amber-600 scale-90"
+                            />
+                          </label>
+
+                          {/* GoPay */}
+                          <label className={`border rounded-lg p-2 flex items-center justify-between cursor-pointer transition-all ${
+                            formOrder.metodeBayar === 'gopay' 
+                              ? 'border-amber-500 bg-amber-50/50 ring-1 ring-amber-500' 
+                              : 'border-slate-200 hover:bg-slate-50'
+                          }`}>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs">❤️</span>
+                              <span className="text-[11px] font-bold text-slate-700">GoPay Coins</span>
+                            </div>
+                            <input
+                              type="radio"
+                              name="metodeBayar"
+                              value="gopay"
+                              checked={formOrder.metodeBayar === 'gopay'}
+                              onChange={() => setFormOrder(p => ({ ...p, metodeBayar: 'gopay' }))}
+                              className="accent-amber-600 scale-90"
+                            />
+                          </label>
+
+                          {/* ShopeePay */}
+                          <label className={`border rounded-lg p-2 flex items-center justify-between cursor-pointer transition-all ${
+                            formOrder.metodeBayar === 'shopeepay' 
+                              ? 'border-amber-500 bg-amber-50/50 ring-1 ring-amber-500' 
+                              : 'border-slate-200 hover:bg-slate-50'
+                          }`}>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs">🧡</span>
+                              <span className="text-[11px] font-bold text-slate-700">ShopeePay</span>
+                            </div>
+                            <input
+                              type="radio"
+                              name="metodeBayar"
+                              value="shopeepay"
+                              checked={formOrder.metodeBayar === 'shopeepay'}
+                              onChange={() => setFormOrder(p => ({ ...p, metodeBayar: 'shopeepay' }))}
+                              className="accent-amber-600 scale-90"
                             />
                           </label>
                         </div>
@@ -738,17 +945,28 @@ export default function App() {
                         
                         <div className="flex justify-between text-xs text-slate-500">
                           <span className="flex items-center gap-1">
-                            Biaya Admin Kasir (10%):
+                            Biaya Layanan & Admin (10%):
                           </span>
                           <span className="font-semibold text-slate-700">
                             Rp {taxAmount.toLocaleString('id-ID')}
                           </span>
                         </div>
 
+                        {formOrder.tipePesanan === 'online-delivery' && (
+                          <div className="flex justify-between text-xs text-slate-500">
+                            <span className="flex items-center gap-1">
+                              Ongkos Kirim ({formOrder.metodeKirim === 'kurir-kedai' ? 'Kurir Kedai' : formOrder.metodeKirim === 'gojek' ? 'Gojek' : 'Grab'}):
+                            </span>
+                            <span className="font-semibold text-amber-600">
+                              Rp {deliveryFee.toLocaleString('id-ID')}
+                            </span>
+                          </div>
+                        )}
+
                         <hr className="border-slate-200/60 my-1" />
 
                         <div className="flex justify-between text-sm">
-                          <span className="font-bold text-slate-800">Total Pembayaran:</span>
+                          <span className="font-bold text-slate-800">Total Akhir Tagihan:</span>
                           <span className="font-extrabold text-amber-600 text-base">
                             Rp {totalPayment.toLocaleString('id-ID')}
                           </span>
@@ -761,7 +979,7 @@ export default function App() {
                         className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm rounded-lg flex items-center justify-center gap-2 shadow-md active:scale-[0.98] transition-transform cursor-pointer"
                       >
                         <Receipt size={16} />
-                        Kirim Pesanan (Buat Struk)
+                        Kirim Pesanan & Buat Struk
                       </button>
 
                     </form>
@@ -808,7 +1026,7 @@ export default function App() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden"
+              className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full overflow-hidden my-8"
             >
               
               {/* Header Modal Sukses */}
@@ -816,12 +1034,12 @@ export default function App() {
                 <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-2">
                   <CheckCircle2 size={24} className="text-emerald-100" />
                 </div>
-                <h3 className="font-extrabold text-base">Pesanan Terkirim ke Dapur!</h3>
-                <p className="text-xs text-emerald-100">Silakan tunjukkan struk digital ini ke kasir kedai.</p>
+                <h3 className="font-extrabold text-base">Pesanan Berhasil Diproses!</h3>
+                <p className="text-xs text-emerald-100">Silakan simpan rincian pembayaran atau teruskan ke WhatsApp.</p>
               </div>
 
               {/* TAMPILAN RESI TERINSPIRASI OLEH STRUK FISIK KERTAS (RECEIPT PAPER) */}
-              <div className="p-6 bg-slate-50 border-b border-dashed border-slate-200">
+              <div className="p-6 bg-slate-50 border-b border-dashed border-slate-200 max-h-[60vh] overflow-y-auto">
                 
                 {/* Desain Kertas Resi */}
                 <div className="bg-white border border-slate-300/60 shadow-xs p-5 rounded-md font-mono text-xs space-y-4 relative">
@@ -832,7 +1050,7 @@ export default function App() {
                   {/* Info Kedai */}
                   <div className="text-center space-y-1">
                     <p className="font-bold text-sm tracking-tight uppercase text-slate-800">🌴 KEDAI KHAS MALUKU 🌴</p>
-                    <p className="text-[10px] text-slate-500">Area Kampus Universitas Pattimura, Ambon</p>
+                    <p className="text-[10px] text-slate-500">Jl. Ir. M. Putuhena, Poka, Kota Ambon</p>
                     <p className="border-b border-dashed border-slate-200 py-1"></p>
                   </div>
 
@@ -853,13 +1071,29 @@ export default function App() {
                     <div className="flex justify-between">
                       <span>Penyajian:</span>
                       <span className="font-semibold text-slate-800">
-                        {completedOrder.details.tipePesanan === 'dine-in' ? 'Makan di Tempat' : 'Bawa Pulang'}
+                        {completedOrder.details.tipePesanan === 'online-delivery' ? '🛵 Antar Online (Delivery)' : completedOrder.details.tipePesanan === 'take-away' ? '🛍️ Dibungkus (Take-Away)' : '🍛 Makan Di Tempat'}
                       </span>
                     </div>
+                    
                     {completedOrder.details.tipePesanan === 'dine-in' && (
                       <div className="flex justify-between">
                         <span>No. Meja:</span>
                         <span className="font-bold text-amber-600">{completedOrder.details.nomorMeja}</span>
+                      </div>
+                    )}
+
+                    {completedOrder.details.tipePesanan === 'online-delivery' && (
+                      <div className="bg-slate-50 p-2 rounded border border-slate-200/50 space-y-1 mt-2 text-[10px] text-slate-600 leading-relaxed norm">
+                        <p className="font-bold text-slate-800">📍 ALAMAT PENGIRIMAN:</p>
+                        <p className="text-slate-700 font-medium">{completedOrder.details.alamatPengiriman}</p>
+                        <p className="font-bold text-slate-800 mt-1">🚚 JASA KURIR:</p>
+                        <p className="text-slate-700 font-medium uppercase">{completedOrder.details.metodeKirim === 'kurir-kedai' ? 'Kurir Kedai' : completedOrder.details.metodeKirim === 'gojek' ? 'Gojek Instant' : 'Grab Express'}</p>
+                        {completedOrder.details.catatanDriver && (
+                          <>
+                            <p className="font-bold text-slate-800 mt-1">📝 CATATAN DRIVER:</p>
+                            <p className="italic text-slate-600">"{completedOrder.details.catatanDriver}"</p>
+                          </>
+                        )}
                       </div>
                     )}
                     <p className="border-b border-dashed border-slate-200 py-1"></p>
@@ -908,24 +1142,30 @@ export default function App() {
                       <span>Rp {completedOrder.subtotal.toLocaleString('id-ID')}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Biaya Admin (10%):</span>
+                      <span>Biaya Layanan & Admin (10%):</span>
                       <span>Rp {completedOrder.pajak.toLocaleString('id-ID')}</span>
                     </div>
+                    {completedOrder.details.tipePesanan === 'online-delivery' && (
+                      <div className="flex justify-between">
+                        <span>Ongkos Kirim:</span>
+                        <span>Rp {completedOrder.ongkir.toLocaleString('id-ID')}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-sm font-extrabold text-slate-800 pt-1 border-t border-dotted border-slate-200">
                       <span>TOTAL BAYAR:</span>
-                      <span className="text-amber-600">Rp {completedOrder.total.toLocaleString('id-ID')}</span>
+                      <span className="text-amber-600 text-sm">Rp {completedOrder.total.toLocaleString('id-ID')}</span>
                     </div>
                   </div>
 
                   {/* Ringkasan Bayar */}
                   <div className="text-center pt-3 border-t border-dashed border-slate-200 space-y-1">
-                    <p className="text-[11px] font-bold text-slate-700 flex items-center justify-center gap-1">
+                    <p className="text-[11px] font-bold text-slate-700 flex flex-wrap items-center justify-center gap-1">
                       <span>Cara Bayar:</span>
-                      <span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] tracking-wider uppercase text-slate-800">
-                        {completedOrder.details.metodeBayar === 'tunai' ? '💵 TUNAI DI KASIR' : '📱 QRIS MANDIRI'}
+                      <span className="bg-slate-100 px-2 py-0.5 rounded text-[9px] tracking-wider uppercase text-slate-800">
+                        {completedOrder.details.metodeBayar === 'tunai' ? '💵 Tunai Kasir' : completedOrder.details.metodeBayar === 'qris' ? '📱 QRIS Mandiri' : completedOrder.details.metodeBayar === 'gopay' ? '❤️ GoPay Coins' : '🧡 ShopeePay'}
                       </span>
                     </p>
-                    <p className="text-[9px] text-slate-400 italic">Terima kasih atas kunjungan Anda!</p>
+                    <p className="text-[9px] text-slate-400 italic">Dangke Banyak (Terima Kasih) Atas Kunjungan Anda!</p>
                   </div>
 
                 </div>
@@ -933,27 +1173,317 @@ export default function App() {
               </div>
 
               {/* Tindakan Pembatalan / Selesai */}
-              <div className="bg-slate-50 p-4 flex gap-3">
+              <div className="bg-slate-100 p-4 space-y-2">
+                {/* Informasi Penting Pembatasan iFrame */}
+                <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-lg text-[10px] text-amber-800 leading-relaxed space-y-1">
+                  <p className="font-bold flex items-center gap-1">
+                    <Info size={11} className="shrink-0" />
+                    Catatan untuk Pengguna:
+                  </p>
+                  <p>
+                    Karena aplikasi berada di dalam iframe (preview), browser membatasi cetak struk langsung & buka WhatsApp. 
+                    Silakan klik tombol <strong className="text-amber-950">"Buka di Tab Baru"</strong> di kanan atas layar untuk fungsi penuh 100% normal, ATAU gunakan tombol salin praktis di bawah!
+                  </p>
+                </div>
+
+                {/* Hubungkan ke whatsapp */}
                 <button
                   type="button"
                   onClick={() => {
-                    // Simulasi mencetak struk asli bawaan browser printer
-                    window.print();
+                    const numberUrl = '6281234567890'; // Contoh Nomor WA kedai fiktif mahasiswa
+                    const subtext = completedOrder.items.map((it, idx) => `%20%20${idx+1}.%20${it.menuItem.nama}%20(${it.jumlah}x)`).join('%0A');
+                    const textToSend = `*PESANAN%20KEDAI%20KHAS%20MALUKU*%0A` +
+                      `---------------------------------------%0A` +
+                      `*ID%20Nota*:%20${completedOrder.idOrder}%0A` +
+                      `*Nama%20Pemesan*:%20${completedOrder.details.namaPemesan}%0A` +
+                      `*Tipe*:%20${completedOrder.details.tipePesanan === 'online-delivery' ? 'Kirim%20Online%20(Delivery)' : 'Dine%20In/Takeout'}%0A` +
+                      `*Pesanan*:%0A${subtext}%0A` +
+                      `*Alamat*:%20${completedOrder.details.alamatPengiriman || '-'}%0A` +
+                      `*Kurir*:%20${completedOrder.details.metodeKirim || '-'}%0A` +
+                      `*Total%20Tagihan*:%20Rp%20${completedOrder.total.toLocaleString('id-ID')}%0A` +
+                      `*Metode%20Bayar*:%20${completedOrder.details.metodeBayar.toUpperCase()}%0A%0A` +
+                      `_Halo%20Admin%20Kedai,%20berikut%20nota%20pesanan%20beta,%20mohon%20segera%20diproses,%20dangke!_`;
+                    
+                    window.open(`https://wa.me/${numberUrl}?text=${textToSend}`, '_blank');
                   }}
-                  className="flex-1 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-sm active:scale-95"
                 >
-                  <Printer size={14} /> Cetak Struk
+                  <span>💬 Kirim Nota Pesanan ke WhatsApp</span>
                 </button>
-                
+
+                {/* Tombol Salin Rincian Pesanan (Fallback Iframe) */}
                 <button
                   type="button"
-                  onClick={handleResetApp}
-                  className="flex-1 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                  onClick={() => {
+                    const itemsText = completedOrder.items.map((it, idx) => `  ${idx+1}. ${it.menuItem.nama} (${it.jumlah}x)`).join('\n');
+                    const formattedReceipt = `KEDAI KHAS MALUKU\n` +
+                      `========================================\n` +
+                      `ID Nota       : ${completedOrder.idOrder}\n` +
+                      `Tanggal       : ${completedOrder.waktu}\n` +
+                      `Nama Pemesan  : ${completedOrder.details.namaPemesan}\n` +
+                      `Tipe Layanan  : ${completedOrder.details.tipePesanan === 'online-delivery' ? 'Kirim Online (Delivery)' : 'Makan Di Tempat / Bungkus'}\n` +
+                      `----------------------------------------\n` +
+                      `Daftar Pesanan:\n${itemsText}\n` +
+                      `----------------------------------------\n` +
+                      `Alamat        : ${completedOrder.details.alamatPengiriman || '-'}\n` +
+                      `Metode Kirim  : ${completedOrder.details.metodeKirim || '-'}\n` +
+                      `Metode Bayar  : ${completedOrder.details.metodeBayar.toUpperCase()}\n` +
+                      `========================================\n` +
+                      `TOTAL TAGIHAN : Rp ${completedOrder.total.toLocaleString('id-ID')}\n` +
+                      `========================================\n` +
+                      `Terima kasih sudah memesan di Kedai Khas Maluku!`;
+
+                    navigator.clipboard.writeText(formattedReceipt).then(() => {
+                      setIsCopied(true);
+                      setTimeout(() => setIsCopied(false), 3000);
+                    }).catch(() => {
+                      alert('Gagal menyalin nota otomatis, harap salin teks rincian secara manual.');
+                    });
+                  }}
+                  className={`w-full py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-sm active:scale-95`}
                 >
-                  Selesai & Pesan Baru <ChevronRight size={14} />
+                  {isCopied ? (
+                    <>
+                      <CheckCircle2 size={13} className="text-emerald-400" /> Nota Berhasil Disalin!
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={13} /> Salin Nota Pesanan (Untuk WhatsApp)
+                    </>
+                  )}
+                </button>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.print();
+                    }}
+                    className="flex-1 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Printer size={13} /> Cetak Nota
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={handleResetApp}
+                    className="flex-1 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                  >
+                    Buka Menu Baru <ChevronRight size={13} />
+                  </button>
+                </div>
+              </div>
+
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ==========================================
+          MODAL INTERAKTIF: SIMULATOR PESANAN GOFOOD
+          Hadir untuk memberikan simulasi memesan ojek online di Maluku
+          ========================================== */}
+      <AnimatePresence>
+        {activeGoFoodItem && (
+          <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4 bg-red-950/70 backdrop-blur-xs">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-red-100"
+            >
+              {/* Header Merah khas GoFood */}
+              <div className="bg-red-600 text-white p-5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🛵</span>
+                  <div>
+                    <h3 className="font-extrabold text-sm tracking-tight text-white flex items-center gap-1.5">
+                      GoFood Partner Khas Maluku
+                    </h3>
+                    <p className="text-[10px] text-red-100">Super Fast Delivery Ambon</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveGoFoodItem(null)}
+                  className="text-white hover:text-red-200 text-sm font-bold bg-black/15 w-6 h-6 rounded-full flex items-center justify-center cursor-pointer"
+                >
+                  ✕
                 </button>
               </div>
 
+              {/* Rincian Menu GoFood */}
+              <div className="p-5 space-y-4">
+                <div className="flex gap-3 items-start">
+                  {activeGoFoodItem.gambar ? (
+                    <img
+                      src={activeGoFoodItem.gambar}
+                      alt={activeGoFoodItem.nama}
+                      referrerPolicy="no-referrer"
+                      className="w-16 h-16 rounded-xl object-cover border border-slate-200"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl bg-amber-50 flex items-center justify-center text-3xl">
+                      {activeGoFoodItem.emoji}
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <span className="text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-red-50 text-red-600 border border-red-100">
+                      Diskon Goban 25%
+                    </span>
+                    <h4 className="font-extrabold text-slate-900 text-sm leading-tight mt-1">{activeGoFoodItem.nama}</h4>
+                    <p className="text-xs text-amber-600 font-extrabold">Rp {(activeGoFoodItem.harga * 0.9).toLocaleString('id-ID')} <span className="text-[10px] text-slate-400 line-through font-normal">Rp {activeGoFoodItem.harga.toLocaleString('id-ID')}</span></p>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 rounded-xl p-3 border border-slate-200/60 text-xs text-slate-600 space-y-2">
+                  <div className="flex justify-between">
+                    <span>Estimasi Pengiriman:</span>
+                    <span className="font-bold text-slate-800">🚀 15 - 25 Menit</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Jarak Resto:</span>
+                    <span className="font-bold text-slate-800">📍 1.2 Km (Kota Ambon)</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Ulasan Menu:</span>
+                    <span className="font-bold text-amber-500">⭐ 4.9 (500+ Rating)</span>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-500 leading-relaxed italic border-l-2 border-amber-500 pl-2">
+                  "Menyediakan aneka citarasa bumbu rempah aromatik Maluku, bersertifikasi higienis, dan dimasak instan saat ada pesanan GoFood masuk!"
+                </p>
+
+                {/* Tombol Aksi GoFood */}
+                <div className="space-y-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Simulasikan tambah ke local order ojek
+                      handleAddToCart(activeGoFoodItem);
+                      setActiveGoFoodItem(null);
+                      alert(`Berhasil memesan ${activeGoFoodItem.nama}! Item juga ditambahkan ke keranjang belanja lokal Anda untuk mempermudah perhitungan nota.`);
+                    }}
+                    className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer select-none active:scale-95"
+                  >
+                    <span>Pesan Cepat GoFood Sekarang (Rp {(activeGoFoodItem.harga * 0.9).toLocaleString('id-ID')})</span>
+                  </button>
+                  <p className="text-[9.5px] text-zinc-400 text-center">
+                    Klik tombol di atas untuk menyalurkan simulasi checkout kurir ojek ke sistem kedai.
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ==========================================
+          MODAL INTERAKTIF: CORE GOFOOD PARTNER HUB
+          Memberikan visual overview integrasi ojek online Ambon Manise
+          ========================================== */}
+      <AnimatePresence>
+        {showGoFoodHub && (
+          <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4 bg-zinc-950/80 backdrop-blur-xs">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-red-100"
+            >
+              {/* GoFood Banner Header */}
+              <div className="bg-gradient-to-r from-red-600 to-red-800 text-white p-6 relative overflow-hidden">
+                <div className="absolute right-0 bottom-0 text-white/5 text-9xl transform translate-x-12 translate-y-6 select-none font-extrabold">
+                  GoFood
+                </div>
+                <div className="space-y-1 relative z-1">
+                  <span className="bg-white/20 text-white text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">
+                    Official Merchant 2026
+                  </span>
+                  <h3 className="font-extrabold text-lg sm:text-xl text-white">
+                    Kedai Khas Maluku - GoFood Ambon
+                  </h3>
+                  <p className="text-xs text-red-100 flex items-center gap-1">
+                    <span>📍 Area Poka & Ambon Manise</span>
+                    <span>•</span>
+                    <span className="text-amber-300 font-bold">⭐ 4.9 (Excellent Partner)</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Promo & Menu Mitra */}
+              <div className="p-6 space-y-4">
+                <div className="space-y-2">
+                  <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
+                    🎁 Promo Aktif GoFood Terbatas:
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="bg-red-50 border border-red-200/50 p-2.5 rounded-xl text-red-800">
+                      <p className="font-extrabold">DISKONGEDE25</p>
+                      <p className="text-slate-500 font-medium text-[10px]">Potongan harga 25% produk terpilih</p>
+                    </div>
+                    <div className="bg-amber-50 border border-amber-200/50 p-2.5 rounded-xl text-amber-800">
+                      <p className="font-extrabold">MALUKUFREE</p>
+                      <p className="text-slate-500 font-medium text-[10px]">Gratis Ongkir hingga Rp 15.000</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
+                    🍽️ Menu Recomended GoFood (Best Seller):
+                  </h4>
+                  <div className="space-y-2 max-h-48 overflow-y-auto divide-y divide-slate-100 pr-1">
+                    {DAFTAR_MENU.slice(0, 4).map(item => (
+                      <div key={item.id} className="pt-2 flex items-center justify-between gap-3 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">{item.emoji}</span>
+                          <div>
+                            <p className="font-bold text-slate-900">{item.nama}</p>
+                            <p className="text-[10px] text-slate-400">{item.estimasiPorsi} • {item.waktuSaji}</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveGoFoodItem(item);
+                            setShowGoFoodHub(false);
+                          }}
+                          className="bg-red-600 hover:bg-red-700 text-white font-extrabold text-[10px] py-1 px-3 rounded-lg cursor-pointer active:scale-95 transition-transform"
+                        >
+                          Pesan
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-400 bg-slate-50 p-3 rounded-lg text-center leading-relaxed font-medium">
+                  Informasi ini disinkronisasikan langsung dari Aplikasi Gojek Merchant. Pengguna di sekitar kampus Unpatti Maluku dapat menikmati waktu saji lebih singkat.
+                </p>
+
+                {/* Footer Buttons */}
+                <div className="flex gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowGoFoodHub(false)}
+                    className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-xs rounded-xl transition-all cursor-pointer"
+                  >
+                    Kembali Ke Menu Utama
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowGoFoodHub(false);
+                      alert('Simulasi integrasi GoFood telah aktif! Semua menu kami sekarang menampilkan tombol pintas pesanan GoFood.');
+                    }}
+                    className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs rounded-xl transition-all cursor-pointer"
+                  >
+                    Aktifkan GoFood Promo
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}
